@@ -1,0 +1,170 @@
+services:
+  # --- SEDE 1: Sincelejo ---
+  db_sede1:
+    image: postgres:15-alpine
+    container_name: db_sede1
+    environment:
+      POSTGRES_DB: historia_clinica_sede1
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgrespassword}
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./db/init-sede1.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d historia_clinica_sede1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: always
+
+  # --- SEDE 2: Cartagena ---
+  db_sede2:
+    image: postgres:15-alpine
+    container_name: db_sede2
+    environment:
+      POSTGRES_DB: historia_clinica_sede2
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgrespassword}
+    ports:
+      - "5434:5432"
+    volumes:
+      - ./db/init-sede2.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d historia_clinica_sede2"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: always
+
+  # --- SEDE 3: Corozal ---
+  db_sede3:
+    image: postgres:15-alpine
+    container_name: db_sede3
+    environment:
+      POSTGRES_DB: historia_clinica_sede3
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgrespassword}
+    ports:
+      - "5435:5432"
+    volumes:
+      - ./db/init-sede3.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d historia_clinica_sede3"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: always
+
+  # --- CITUS COORDINATOR ---
+  citus_master:
+    image: citusdata/citus:12.1-alpine
+    container_name: citus_master
+    environment:
+      POSTGRES_DB: ${CITUS_DB:-citus_clinical_cdr}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgrespassword}
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d citus_clinical_cdr"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: always
+
+  # --- CITUS WORKER 1 ---
+  citus_worker1:
+    image: citusdata/citus:12.1-alpine
+    container_name: citus_worker1
+    environment:
+      POSTGRES_DB: ${CITUS_DB:-citus_clinical_cdr}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgrespassword}
+    depends_on:
+      citus_master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d citus_clinical_cdr"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: always
+
+  # --- CITUS WORKER 2 ---
+  citus_worker2:
+    image: citusdata/citus:12.1-alpine
+    container_name: citus_worker2
+    environment:
+      POSTGRES_DB: ${CITUS_DB:-citus_clinical_cdr}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgrespassword}
+    depends_on:
+      citus_master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d citus_clinical_cdr"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: always
+
+  # --- INICIALIZADOR AUTOMÁTICO DE CITUS ---
+  citus_init:
+    image: postgres:15-alpine
+    container_name: citus_init
+    volumes:
+      - ./db/init-cluster.sh:/init-cluster.sh
+      - ./db/init-citus.sql:/scripts/init-citus.sql
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-postgrespassword}
+    entrypoint: ["/bin/sh", "/init-cluster.sh"]
+    depends_on:
+      citus_master:
+        condition: service_healthy
+      citus_worker1:
+        condition: service_healthy
+      citus_worker2:
+        condition: service_healthy
+    restart: "no"
+
+  # --- HAPI FHIR JPA ---
+  hapi_fhir:
+    image: hapiproject/hapi:v8.12.0
+    container_name: hapi_fhir
+    ports:
+      - "8080:8080"
+    environment:
+      hapi.fhir.fhir_version: R4
+    restart: always
+
+  # --- HEALTH SERVICE BUS (HSB) & APLICACIÓN WEB ---
+  hsb_app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hsb_app
+    ports:
+      - "8000:8000"
+    environment:
+      CITUS_HOST: citus_master
+      CITUS_PORT: 5432
+      CITUS_DB: citus_clinical_cdr
+      SEDE1_HOST: db_sede1
+      SEDE2_HOST: db_sede2
+      SEDE3_HOST: db_sede3
+      HAPI_HOST: hapi_fhir
+      HAPI_PORT: 8080
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgrespassword}
+      JWT_SECRET: ${JWT_SECRET:-supersecreto_clinico_2026_grupo5_key_32bytes_min}
+    depends_on:
+      citus_init:
+        condition: service_completed_successfully
+      db_sede1:
+        condition: service_healthy
+      db_sede2:
+        condition: service_healthy
+      db_sede3:
+        condition: service_healthy
+    restart: always

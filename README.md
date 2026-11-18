@@ -1,4 +1,4 @@
-# Plataforma Distribuida de Interoperabilidad Clínica (Grupo 5)
+# Plataforma Distribuida de Interoperabilidad Clínica
 
 Proyecto final para la asignatura **Sistemas Distribuidos** de la **Corporación Universitaria Antonio José de Sucre (Corposucre)**.
 - **Autores:** Carlos Andrés Acosta Herrera & Juan David Benítez Ruiz

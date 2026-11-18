@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Gestión Clínica e Interoperabilidad</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <style>
+        body { background-color: #f0f2f5; font-family: 'Segoe UI', system-ui, sans-serif; }
+        .navbar-hospital { background: linear-gradient(135deg, #0d3b66 0%, #001e3d 100%); color: white; }
+        .card-custom { border-radius: 12px; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+        .login-card { max-width: 460px; margin: 80px auto; border-radius: 16px; border: none; box-shadow: 0 10px 25px rgba(0,0,0,0.12); }
+        .tab-btn { font-weight: 600; padding: 12px 20px; color: #495057; border-radius: 8px !important; margin-right: 6px; }
+        .tab-btn.active { background-color: #0d3b66 !important; color: white !important; }
+    </style>
+</head>
+<body>
+
+    <!-- 1. PANTALLA DE ACCESO OBLIGATORIO (LOGIN CON 2FA) -->
+    <div id="pantallaLogin" class="container">
+        <div class="card login-card bg-white p-4 p-md-5">
+            <div class="text-center mb-4">
+                <i class="bi bi-hospital fs-1 text-primary"></i>
+                <h4 class="fw-bold mt-2 text-dark">Portal Clínico Federado</h4>
+                <p class="text-muted small">Autenticación Multifactorial Obligatoria (2FA / OTP)</p>
+            </div>
+
+            <form onsubmit="ejecutarLogin(event)">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Usuario / Rol Asistencial</label>
+                    <select class="form-select" id="logUser" onchange="cambiarUsuarioDemo()">
+                        <option value="medico">Dr. Mateo Ruiz (Médico Especialista)</option>
+                        <option value="admision">Laura Vega (Admisionista / Recepción)</option>
+                        <option value="auditor">Dr. Carlos Herrera (Director Auditor / Monitoreo)</option>
+                        <option value="paciente">Andrea Rojas (Paciente)</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Contraseña</label>
+                    <input type="password" class="form-control" id="logPass" value="medico123" required>
+                </div>
+                <div class="mb-4">
+                    <label class="form-label fw-bold">Código Dinámico 2FA / OTP (6 Dígitos)</label>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-key-fill text-warning"></i></span>
+                        <input type="text" class="form-control text-center fw-bold fs-4 tracking-wider" id="logOTP" maxlength="6" value="784912" required>
+                    </div>
+                    <small class="text-muted d-block mt-1" id="otpDemoHint">Código OTP activo para Médico: <b>784912</b></small>
+                </div>
+                <button type="submit" class="btn btn-primary w-100 fw-bold py-2 shadow-sm">
+                    <i class="bi bi-box-arrow-in-right me-1"></i> Verificar y Acceder al Sistema
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- 2. PLATAFORMA CLÍNICA (SÓLO VISIBLE DESPUÉS DE AUTENTICARSE) -->
+    <div id="pantallaPlataforma" class="d-none">
+
+        <!-- NAVBAR CON IDENTIFICACIÓN DEL USUARIO Y ROL -->
+        <nav class="navbar navbar-hospital py-3 shadow">
+            <div class="container-fluid px-4 d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center gap-3">
+                    <i class="bi bi-hospital fs-2 text-info"></i>
+                    <div>
+                        <h5 class="mb-0 fw-bold">Red Hospitalaria Nacional de Salud Distribuida</h5>
+                        <small class="text-light opacity-75">Nodos Federados: Sincelejo • Cartagena • Corozal</small>
+                    </div>
+                </div>
+                <div class="d-flex align-items-center gap-3">
+                    <div class="text-end text-light">
+                        <div class="fw-bold" id="navUsuarioNombre">-</div>
+                        <span class="badge bg-success" id="navUsuarioRol">-</span>
+                    </div>
+                    <button class="btn btn-outline-light btn-sm fw-bold px-3" onclick="cerrarSesion()">
+                        <i class="bi bi-power me-1"></i> Cerrar Sesión
+                    </button>
+                </div>
+            </div>
+        </nav>
+
+        <div class="container-fluid px-4 my-4">
+
+            <!-- MENÚ DE PESTAÑAS (CONTROLADO POR ROLES RBAC) -->
+            <ul class="nav nav-pills mb-4 bg-white p-2 rounded card-custom" id="menuTabs">
+                <li class="nav-item" id="tabItemPaciente">
+                    <button class="nav-link tab-btn active" data-bs-toggle="pill" data-bs-target="#tabPaciente">
+                        <i class="bi bi-person-lines-fill me-1"></i> Mi Historia Clínica (FHIR)
+                    </button>
+                </li>
+                <li class="nav-item" id="tabItemAdmision">
+                    <button class="nav-link tab-btn" data-bs-toggle="pill" data-bs-target="#tabAdmision">
+                        <i class="bi bi-clipboard2-pulse me-1"></i> Admisión & Triage
+                    </button>
+                </li>
+                <li class="nav-item" id="tabItemDoctores">
+                    <button class="nav-link tab-btn" data-bs-toggle="pill" data-bs-target="#tabDoctores">
+                        <i class="bi bi-people-fill me-1"></i> Especialistas Médicos
+                    </button>
+                </li>
+                <li class="nav-item" id="tabItemMedico">
+                    <button class="nav-link tab-btn" data-bs-toggle="pill" data-bs-target="#tabMedico">
+                        <i class="bi bi-heart-pulse-fill me-1"></i> Atención Médica & Diagnóstico
+                    </button>
+                </li>
+                <li class="nav-item" id="tabItemMonitoreo">
+                    <button class="nav-link tab-btn" data-bs-toggle="pill" data-bs-target="#tabMonitoreo">
+                        <i class="bi bi-shield-check me-1"></i> Resiliencia & Red Distribuida
+                    </button>
+                </li>
+            </ul>
+
+            <div class="tab-content">
+
+                <!-- 1. VISTA PACIENTE / CONSULTA HISTORIA -->
+                <div class="tab-pane fade show active" id="tabPaciente">
+                    <div class="card card-custom p-4">
+                        <h5 class="fw-bold text-dark mb-3"><i class="bi bi-search text-primary me-2"></i>Consulta de Expediente Clínico Unificado</h5>
+                        <div class="input-group mb-4" style="max-width: 550px;" id="contenedorBusqueda">
+                            <input type="text" id="busqDoc" class="form-control" placeholder="Cédula / Documento" value="1007">
+                            <button class="btn btn-primary fw-bold" onclick="consultarPaciente()"><i class="bi bi-search me-1"></i> Buscar</button>
+                        </div>
+
+                        <div id="resultadoPaciente" class="d-none">
+                            <div class="alert alert-light border border-info d-flex justify-content-between align-items-center shadow-sm">
+                                <div>
+                                    <h6 class="fw-bold mb-1" id="resNombre">Andrea Rojas</h6>
+                                    <small class="text-muted">Documento: <b id="resDoc">1007</b> | Sexo: <b id="resSexo">female</b> | Nacimiento: <b id="resNac">1995-05-12</b></small>
+                                </div>
+                                <div>
+                                    <span class="badge bg-primary px-3 py-2 me-2" id="resSede">SEDE2 (Cartagena)</span>
+                                    <button class="btn btn-sm btn-dark" onclick="descargarFHIR()"><i class="bi bi-download me-1"></i> Descargar Bundle FHIR</button>
+                                </div>
+                            </div>
+
+                            <h6 class="fw-bold mt-4 mb-3">Historial de Atenciones Registradas:</h6>
+                            <div class="table-responsive">
+                                <table class="table table-hover table-bordered bg-white">
+                                    <thead class="table-dark">
+                                        <tr>
+                                            <th>Sede Origen</th>
+                                            <th>Fecha / Hora</th>
+                                            <th>Atención / Diagnóstico CIE-10</th>
+                                            <th>Profesional a Cargo</th>
+                                            <th>Área Asistencial</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="resAtenciones"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. VISTA ADMISIÓN -->
+                <div class="tab-pane fade" id="tabAdmision">
+                    <div class="card card-custom p-4">
+                        <h5 class="fw-bold text-dark mb-3"><i class="bi bi-person-plus-fill text-success me-2"></i>Admisión y Registro de Paciente en la Red</h5>
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold">Documento</label>
+                                <input type="text" class="form-control" id="admDoc" value="1025">
+                            </div>
+                            <div class="col-md-5">
+                                <label class="form-label fw-bold">Nombre Completo del Paciente</label>
+                                <input type="text" class="form-control" id="admNom" value="Fernando Castro Pineda">
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label fw-bold">Sexo</label>
+                                <select class="form-select" id="admSex">
+                                    <option value="male">Masculino</option>
+                                    <option value="female">Femenino</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label fw-bold">Fecha Nacimiento</label>
+                                <input type="date" class="form-control" id="admNac" value="1992-08-14">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">Sede de Ingreso</label>
+                                <select class="form-select" id="admSede">
+                                    <option value="SEDE1">Sede 1: Sincelejo</option>
+                                    <option value="SEDE2">Sede 2: Cartagena</option>
+                                    <option value="SEDE3">Sede 3: Corozal</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">Nivel de Triage Clínico</label>
+                                <select class="form-select" id="admTriage">
+                                    <option value="1">Triage 1 - Crítico</option>
+                                    <option value="2">Triage 2 - Emergencia</option>
+                                    <option value="3" selected>Triage 3 - Urgencia</option>
+                                    <option value="4">Triage 4 - Prioritario</option>
+                                    <option value="5">Triage 5 - No urgente</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">Médico Asignado</label>
+                                <select class="form-select" id="admMedSelector"></select>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold">Motivo de Consulta</label>
+                                <textarea class="form-control" id="admMotivo" rows="2">Fiebre y dolor agudo</textarea>
+                            </div>
+                            <div class="col-12 mt-3">
+                                <button class="btn btn-success fw-bold px-4 py-2" onclick="crearPacienteAdmision()">
+                                    <i class="bi bi-send-check me-1"></i> Registrar y Despachar Admisión a la Red
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. CUERPO MÉDICO -->
+                <div class="tab-pane fade" id="tabDoctores">
+                    <div class="card card-custom p-4">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5 class="fw-bold text-dark mb-0"><i class="bi bi-hospital-fill text-primary me-2"></i>Especialistas de la Red</h5>
+                            <button class="btn btn-primary btn-sm fw-bold" data-bs-toggle="modal" data-bs-target="#modalDoctor">
+                                <i class="bi bi-plus-circle me-1"></i> Agregar Especialista
+                            </button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-striped align-middle">
+                                <thead class="table-dark">
+                                    <tr>
+                                        <th>Código</th>
+                                        <th>Nombre</th>
+                                        <th>Especialidad</th>
+                                        <th>Sede Asignada</th>
+                                        <th>Estado</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tablaDoctores"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. VISTA MÉDICO -->
+                <div class="tab-pane fade" id="tabMedico">
+                    <div class="card card-custom p-4">
+                        <h5 class="fw-bold text-dark mb-3"><i class="bi bi-clipboard2-check text-warning me-2"></i>Diagnóstico Clínico y Sello Criptográfico</h5>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">Documento del Paciente</label>
+                                <input type="text" class="form-control" id="dxDoc" value="1007">
+                            </div>
+                            <div class="col-md-5">
+                                <label class="form-label fw-bold">Diagnóstico CIE-10</label>
+                                <select class="form-select" id="dxCie10">
+                                    <option value="J45.9">J45.9 - Asma, no especificada</option>
+                                    <option value="I10">I10 - Hipertensión esencial</option>
+                                    <option value="A09">A09 - Diarrea y gastroenteritis</option>
+                                    <option value="E11.9">E11.9 - Diabetes mellitus tipo 2</option>
+                                    <option value="J18.9">J18.9 - Neumonía</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold">&nbsp;</label>
+                                <button class="btn btn-warning fw-bold w-100" onclick="firmarDiagnostico()">
+                                    <i class="bi bi-hash me-1"></i> Firmar con Hash
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 5. VISTA MONITOREO -->
+                <div class="tab-pane fade" id="tabMonitoreo">
+                    <div class="card card-custom p-4">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5 class="fw-bold text-dark mb-0"><i class="bi bi-diagram-3-fill text-info me-2"></i>Monitor de Nodos y Cola Store-and-Forward</h5>
+                            <button class="btn btn-outline-primary btn-sm fw-bold" onclick="actualizarNodos()"><i class="bi bi-arrow-clockwise me-1"></i> Actualizar</button>
+                        </div>
+                        <div class="alert alert-secondary d-flex justify-content-between align-items-center">
+                            <div>
+                                <span class="fw-bold"><i class="bi bi-inbox-fill text-primary me-2"></i>Mensajes en Contingencia:</span>
+                                <span id="colaCount" class="badge bg-warning text-dark fs-6 ms-2">0 pendientes</span>
+                            </div>
+                            <small class="text-muted">Si los 3 nodos caen, los mensajes esperan aquí hasta su recuperación.</small>
+                        </div>
+                        <div class="row g-3 mt-2">
+                            <div class="col-md-4">
+                                <div class="border rounded p-3 bg-white shadow-sm">
+                                    <h6 class="fw-bold mb-1">Sede 1: Sincelejo (Puerto 5433)</h6>
+                                    <span class="badge bg-success" id="badgeS1">UP</span>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="border rounded p-3 bg-white shadow-sm">
+                                    <h6 class="fw-bold mb-1">Sede 2: Cartagena (Puerto 5434)</h6>
+                                    <span class="badge bg-success" id="badgeS2">UP</span>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="border rounded p-3 bg-white shadow-sm">
+                                    <h6 class="fw-bold mb-1">Sede 3: Corozal (Puerto 5435)</h6>
+                                    <span class="badge bg-success" id="badgeS3">UP</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL AGREGAR DOCTOR -->
+    <div class="modal fade" id="modalDoctor" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content border-0 shadow">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title fw-bold">Registrar Especialista</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Nombre Completo</label>
+                        <input type="text" class="form-control" id="docNuevoNombre" placeholder="Dr. Juan Pérez">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Especialidad</label>
+                        <input type="text" class="form-control" id="docNuevoEsp" placeholder="ej: Cardiología">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Sede</label>
+                        <select class="form-select" id="docNuevoSede">
+                            <option value="SEDE1">Sede 1: Sincelejo</option>
+                            <option value="SEDE2">Sede 2: Cartagena</option>
+                            <option value="SEDE3">Sede 3: Corozal</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-primary fw-bold" onclick="guardarNuevoDoctor()">Guardar Doctor</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let sesion = null;
+
+        function cambiarUsuarioDemo() {
+            const u = document.getElementById("logUser").value;
+            if (u === "medico") {
+                document.getElementById("logPass").value = "medico123";
+                document.getElementById("logOTP").value = "784912";
+                document.getElementById("otpDemoHint").innerHTML = "Código OTP activo para Médico: <b>784912</b>";
+            } else if (u === "admision") {
+                document.getElementById("logPass").value = "admin123";
+                document.getElementById("logOTP").value = "123456";
+                document.getElementById("otpDemoHint").innerHTML = "Código OTP activo para Admisionista: <b>123456</b>";
+            } else if (u === "auditor") {
+                document.getElementById("logPass").value = "audit123";
+                document.getElementById("logOTP").value = "999888";
+                document.getElementById("otpDemoHint").innerHTML = "Código OTP activo para Auditor: <b>999888</b>";
+            } else {
+                document.getElementById("logPass").value = "paciente123";
+                document.getElementById("logOTP").value = "111222";
+                document.getElementById("otpDemoHint").innerHTML = "Código OTP activo para Paciente: <b>111222</b>";
+            }
+        }
+
+        async function ejecutarLogin(e) {
+            e.preventDefault();
+            const u = document.getElementById("logUser").value;
+            const p = document.getElementById("logPass").value;
+            const otp = document.getElementById("logOTP").value;
+
+            try {
+                const res = await fetch("/api/auth/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ usuario: u, password: p, codigo_2fa: otp })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || "Error al autenticar");
+
+                sesion = data;
+                aplicarPermisosPorRol(sesion.rol, sesion.usuario);
+
+                document.getElementById("pantallaLogin").classList.add("d-none");
+                document.getElementById("pantallaPlataforma").classList.remove("d-none");
+
+                cargarDoctores();
+                actualizarNodos();
+            } catch (err) {
+                alert(err.message);
+            }
+        }
+
+        function aplicarPermisosPorRol(rol, nombre) {
+            document.getElementById("navUsuarioNombre").innerText = nombre;
+            document.getElementById("navUsuarioRol").innerText = `ROL: ${rol}`;
+
+            // Ocultar todas las pestañas primero
+            document.getElementById("tabItemPaciente").classList.add("d-none");
+            document.getElementById("tabItemAdmision").classList.add("d-none");
+            document.getElementById("tabItemDoctores").classList.add("d-none");
+            document.getElementById("tabItemMedico").classList.add("d-none");
+            document.getElementById("tabItemMonitoreo").classList.add("d-none");
+
+            if (rol === "MEDICO") {
+                document.getElementById("tabItemPaciente").classList.remove("d-none");
+                document.getElementById("tabItemMedico").classList.remove("d-none");
+                activarTab("#tabMedico");
+            } else if (rol === "ADMISIONISTA") {
+                document.getElementById("tabItemAdmision").classList.remove("d-none");
+                document.getElementById("tabItemDoctores").classList.remove("d-none");
+                document.getElementById("tabItemPaciente").classList.remove("d-none");
+                activarTab("#tabAdmision");
+            } else if (rol === "AUDITOR") {
+                document.getElementById("tabItemPaciente").classList.remove("d-none");
+                document.getElementById("tabItemAdmision").classList.remove("d-none");
+                document.getElementById("tabItemDoctores").classList.remove("d-none");
+                document.getElementById("tabItemMedico").classList.remove("d-none");
+                document.getElementById("tabItemMonitoreo").classList.remove("d-none");
+                activarTab("#tabMonitoreo");
+            } else {
+                document.getElementById("tabItemPaciente").classList.remove("d-none");
+                activarTab("#tabPaciente");
+                document.getElementById("busqDoc").value = "1007";
+                consultarPaciente();
+            }
+        }
+
+        function activarTab(tabId) {
+            const btn = document.querySelector(`button[data-bs-target="${tabId}"]`);
+            if (btn) {
+                bootstrap.Tab.getOrCreateInstance(btn).show();
+            }
+        }
+
+        function cerrarSesion() {
+            sesion = null;
+            document.getElementById("pantallaPlataforma").classList.add("d-none");
+            document.getElementById("pantallaLogin").classList.remove("d-none");
+        }
+
+        async function cargarDoctores() {
+            try {
+                const res = await fetch("/api/doctores");
+                const docs = await res.json();
+                const tbody = document.getElementById("tablaDoctores");
+                const sel = document.getElementById("admMedSelector");
+                tbody.innerHTML = "";
+                sel.innerHTML = "";
+                docs.forEach(d => {
+                    tbody.innerHTML += `
+                        <tr>
+                            <td><span class="badge bg-dark">${d.codigo}</span></td>
+                            <td class="fw-bold">${d.nombre}</td>
+                            <td><span class="badge bg-info text-dark">${d.especialidad}</span></td>
+                            <td><span class="badge bg-secondary">${d.sede}</span></td>
+                            <td><span class="badge bg-success">Activo</span></td>
+                        </tr>
+                    `;
+                    sel.innerHTML += `<option value="${d.codigo}">${d.nombre} (${d.especialidad})</option>`;
+                });
+            } catch(e) { console.error(e); }
+        }
+
+        async function guardarNuevoDoctor() {
+            const nom = document.getElementById("docNuevoNombre").value.trim();
+            const esp = document.getElementById("docNuevoEsp").value.trim();
+            const sede = document.getElementById("docNuevoSede").value;
+            if(!nom || !esp) return alert("Complete los datos del doctor");
+
+            await fetch("/api/doctores", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ nombre: nom, especialidad: esp, sede: sede })
+            });
+            bootstrap.Modal.getInstance(document.getElementById('modalDoctor')).hide();
+            cargarDoctores();
+            alert("Especialista médico registrado con éxito.");
+        }
+
+        async function crearPacienteAdmision() {
+            const payload = {
+                documento: document.getElementById("admDoc").value.trim(),
+                nombre: document.getElementById("admNom").value.trim(),
+                sexo: document.getElementById("admSex").value,
+                nacimiento: document.getElementById("admNac").value,
+                sede: document.getElementById("admSede").value,
+                triage: parseInt(document.getElementById("admTriage").value),
+                motivo: document.getElementById("admMotivo").value.trim(),
+                medico: document.getElementById("admMedSelector").value
+            };
+
+            const res = await fetch("/api/admision", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            actualizarNodos();
+            alert(`Admisión procesada.\nEstado: ${data.resiliencia.status}\nSede efectiva: ${data.resiliencia.sede_efectiva} (${data.resiliencia.modo})`);
+        }
+
+        async function firmarDiagnostico() {
+            const doc = document.getElementById("dxDoc").value.trim();
+            const cie = document.getElementById("dxCie10").value;
+            const med = sesion ? sesion.usuario : "Dr. Mateo Ruiz";
+
+            const res = await fetch("/api/diagnostico", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ documento: doc, cie10: cie, medico: med })
+            });
+            const data = await res.json();
+            alert(`Diagnóstico sellado en cadena inmutable.\nHash: ${data.hash || data.status}`);
+        }
+
+        async function consultarPaciente() {
+            const doc = document.getElementById("busqDoc").value.trim();
+            const res = await fetch(`/api/paciente/${doc}`);
+            if (!res.ok) return alert("Paciente no encontrado");
+            const data = await res.json();
+
+            document.getElementById("resultadoPaciente").classList.remove("d-none");
+            document.getElementById("resNombre").innerText = data.paciente.nombre;
+            document.getElementById("resDoc").innerText = data.paciente.documento;
+            document.getElementById("resSexo").innerText = data.paciente.sexo;
+            document.getElementById("resNac").innerText = data.paciente.nacimiento;
+            document.getElementById("resSede").innerText = data.paciente.sede_origen;
+
+            const tbody = document.getElementById("resAtenciones");
+            tbody.innerHTML = "";
+            data.atenciones.forEach(a => {
+                tbody.innerHTML += `
+                    <tr>
+                        <td><span class="badge bg-secondary">${a.sede}</span></td>
+                        <td>${a.fecha}</td>
+                        <td class="fw-bold">${a.codigo} - ${a.descripcion}</td>
+                        <td>${a.profesional}</td>
+                        <td><span class="badge bg-light text-dark border">${a.detalle}</span></td>
+                    </tr>
+                `;
+            });
+        }
+
+        async function actualizarNodos() {
+            try {
+                const res = await fetch('/health');
+                const data = await res.json();
+                document.getElementById("badgeS1").className = data.sedes.SEDE1 === "UP" ? "badge bg-success" : "badge bg-danger";
+                document.getElementById("badgeS1").innerText = data.sedes.SEDE1;
+                document.getElementById("badgeS2").className = data.sedes.SEDE2 === "UP" ? "badge bg-success" : "badge bg-danger";
+                document.getElementById("badgeS2").innerText = data.sedes.SEDE2;
+                document.getElementById("badgeS3").className = data.sedes.SEDE3 === "UP" ? "badge bg-success" : "badge bg-danger";
+                document.getElementById("badgeS3").innerText = data.sedes.SEDE3;
+                document.getElementById("colaCount").innerText = `${data.cola_contingencia_pendientes} pendientes`;
+            } catch(e) { console.error(e); }
+        }
+
+        function descargarFHIR() {
+            const doc = document.getElementById("resDoc").innerText;
+            const bundle = {
+                "resourceType": "Bundle",
+                "type": "transaction",
+                "timestamp": new Date().toISOString(),
+                "entry": [{ "resource": { "resourceType": "Patient", "id": doc } }]
+            };
+            const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = `FHIR_Paciente_${doc}.json`;
+            a.click();
+        }
+    </script>
+</body>
+</html>
